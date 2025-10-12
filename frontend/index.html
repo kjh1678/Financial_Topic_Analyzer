@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Financial Analyzer</title>
+    <link rel="stylesheet" href="static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Financial Analyzer</h1>
+            <p>재정 분석 도구</p>
+        </header>
+        
+        <main class="main-content">
+            <!-- 좌측 캘린더 영역 -->
+            <section class="calendar-section">
+                <div class="calendar-header">
+                    <button id="prevMonth" class="nav-btn">&lt;</button>
+                    <h2 id="currentMonth">2024년 9월</h2>
+                    <button id="nextMonth" class="nav-btn">&gt;</button>
+                </div>
+                <div class="calendar-container">
+                    <div class="calendar-grid" id="calendarGrid">
+                        <!-- 캘린더가 JavaScript로 동적 생성됩니다 -->
+                    </div>
+                </div>
+            </section>
+            
+            <!-- 우측 기간 선택 영역 -->
+            <section class="period-selection">
+                <h3>기간 선택</h3>
+                <div class="period-buttons">
+                    <button class="period-btn active" data-period="today">오늘</button>
+                    <button class="period-btn" data-period="week">1주일</button>
+                    <button class="period-btn" data-period="month">1개월</button>
+                    <button class="period-btn" data-period="quarter">3개월</button>
+                    <button class="period-btn" data-period="half-year">6개월</button>
+                    <button class="period-btn" data-period="nine-months">9개월</button>
+                    <button class="period-btn" data-period="year">1년</button>
+                    <button class="period-btn" data-period="custom">직접설정</button>
+                </div>
+                
+                <!-- 직접설정 패널 -->
+                <div class="custom-period-panel" id="customPeriodPanel">
+                    <h4>기간 직접 설정</h4>
+                    <div class="date-inputs">
+                        <div class="input-group">
+                            <label for="startDate">시작일</label>
+                            <input type="date" id="startDate" class="date-input">
+                        </div>
+                        <div class="input-group">
+                            <label for="endDate">종료일</label>
+                            <input type="date" id="endDate" class="date-input">
+                        </div>
+                    </div>
+                    <div class="custom-buttons">
+                        <button id="applyCustomPeriod" class="apply-btn">적용</button>
+                        <button id="cancelCustomPeriod" class="cancel-btn">취소</button>
+                    </div>
+                </div>
+                
+                <!-- 선택된 기간 표시 -->
+                <div class="selected-period">
+                    <h4>선택된 기간</h4>
+                    <div id="selectedPeriodDisplay">
+                        <p id="periodText">오늘</p>
+                        <p id="dateRange">2024-09-22</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+        
+        <!-- 분석 결과 영역 (향후 확장용) -->
+        <section class="analysis-section">
+            <h3>분석 결과</h3>
+            <div class="analysis-placeholder">
+                <p>선택한 기간의 재정 분석 결과가 여기에 표시됩니다.</p>
+            </div>
+        </section>
+    </div>
+    
+    <script src="static/js/api.js"></script>
+    <script src="static/js/calendar.js"></script>
+    <script src="static/js/period-selector.js"></script>
+    <script src="static/js/main.js"></script>
+</body>
+</html>
