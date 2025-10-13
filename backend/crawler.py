@@ -1,5 +1,5 @@
 import requests #기사본문 크롤링 라이브러리
-from playwright.sync_api import sync_playwright #기사목록 크롤링 라이브러리
+#from playwright.sync_api import sync_playwright #기사목록 크롤링 라이브러리
 from bs4 import BeautifulSoup #HTML 파싱 라이브러리
 from datetime import datetime #날짜처리 라이브러리
 import time, random #딜레이처리 라이브러리
