@@ -1,6 +1,6 @@
 import sqlite3
 import pandas as pd
-import google import genai
+from google import genai
 from google.genai import types
 import chromadb
 import time
@@ -21,7 +21,7 @@ EMBEDDING_MODEL = 'gemini-embedding-001'
 DB_FILE_PATH = 'data/news.db'
 
 # 벡터 데이터베이스 설정
-CHROMA_DB_PATH = 'data/chroma_db' # 벡터 DB 파일이 저장될 디렉토리
+CHROMA_DB_PATH = 'data/embedding_db' # 벡터 DB 파일이 저장될 디렉토리
 COLLECTION_NAME = 'news_articles_v1' # 생성할 컬렉션 이름
 
 class Embedder:
@@ -43,7 +43,6 @@ class Embedder:
         self.gemini_client = None
         self.vectorDB_client = None
         self.collection = None
-        self.batch_job= None
         
         # Gemini API 설정
         self._setup_gemini_api()
@@ -65,7 +64,7 @@ class Embedder:
         try:
             self.vectorDB_client = chromadb.PersistentClient(path=self.chroma_path)
             # 컬렉션이 이미 존재하면 가져오고, 없으면 생성
-            self.collection = self.client.get_or_create_collection(name=self.collection_name)
+            self.collection = self.vectorDB_client.get_or_create_collection(name=self.collection_name)
             print(f"ChromaDB 클라이언트가 준비되었고 '{self.collection_name}' 컬렉션을 사용합니다.")
         except Exception as e:
             print(f"ChromaDB 설정 실패: {e}")
@@ -73,7 +72,7 @@ class Embedder:
         
     
     
-    def load_data_chunked(self, start_date, end_date, chunk_size=10000):
+    def load_data_and_store(self, start_date, end_date, chunk_size=10000):
         """
         데이터베이스에서 청크 단위로 데이터를 로드하는 제너레이터
         
@@ -118,6 +117,8 @@ class Embedder:
             raise e
         finally:
             conn.close()
+            
+        return temp_file
     
     def _create_batch_input_file(self, chunk_df, f):
        
@@ -139,7 +140,7 @@ class Embedder:
 
         print(f" {len(chunk_df):,}개 문서 입력 완료")
 
-    def _create_batch_job(self, file_path):
+    def create_batch_job(self, file_path):
         """
         Batch 입력 파일을 Google AI Studio에 업로드
         
@@ -163,34 +164,12 @@ class Embedder:
             )
             print(f"Created batch job from file: {batch_job.name}")
             
-            self.batch_job = batch_job
+            return batch_job
             
         except Exception as e:
             print(f"파일 업로드 실패: {e}")
             raise e
     
-    # def _create_batch_job(self, input_file_uri):
-    #     """
-    #     Batch 작업 생성
-        
-    #     Args:
-    #         input_file_uri (str): 입력 파일 URI
-            
-    #     Returns:
-    #         object: Batch 작업 객체
-    #     """
-    #     try:
-    #         # Batch 작업 생성
-    #         batch_job = genai.create_batch(
-    #             input_file_uri=input_file_uri
-    #         )
-            
-    #         print(f"✅ Batch 작업 생성: {batch_job.name}")
-    #         return batch_job
-            
-    #     except Exception as e:
-    #         print(f"🚨 Batch 작업 생성 실패: {e}")
-    #         raise e
     
     def Monitor_job_status(self, batch_job, check_interval=30, max_wait_time=3600):
         """
@@ -221,102 +200,26 @@ class Embedder:
             print(f"Error: {batch_job.error}")
         
         return batch_job.state.name
-        # waited_time = 0
-        
-        # while waited_time < max_wait_time:
-        #     try:
-        #         # 작업 상태 확인
-        #         status = genai.get_batch(batch_job.name)
-                
-        #         if status.state == "COMPLETED":
-        #             print("✅ Batch 작업 완료!")
-        #             return status
-        #         elif status.state == "FAILED":
-        #             print("🚨 Batch 작업 실패!")
-        #             return None
-        #         else:
-        #             print(f"🔄 진행 중... (상태: {status.state}, 대기시간: {waited_time}초)")
-        #             time.sleep(check_interval)
-        #             waited_time += check_interval
-                    
-        #     except Exception as e:
-        #         print(f"🚨 상태 확인 실패: {e}")
-        #         time.sleep(check_interval)
-        #         waited_time += check_interval
-        
-        # print(f"⏰ 최대 대기 시간({max_wait_time}초) 초과")
-        # return None
-    
-    # def _download_batch_results(self, completed_job):
-    #     """
-    #     Batch 작업 결과 다운로드 및 처리
-        
-    #     Args:
-    #         completed_job: 완료된 Batch 작업
-            
-    #     Returns:
-    #         list: 임베딩 벡터 리스트
-    #     """
-    #     try:
-    #         # # 결과 파일 다운로드
-    #         # output_file = genai.download_file(completed_job.output_file_uri)
-            
-    #         # embeddings = []
-    #         # with open(output_file, 'r', encoding='utf-8') as f:
-    #         #     for line in f:
-    #         #         result = json.loads(line)
-    #         #         if 'response' in result and 'embedding' in result['response']:
-    #         #             embedding = result['response']['embedding']['values']
-    #         #             embeddings.append(embedding)
-    #         #         else:
-    #         #             print(f"⚠️ 임베딩 실패 응답: {result.get('error', 'Unknown error')}")
-    #         #             embeddings.append(None)
-            
-    #         # print(f"✅ {len([e for e in embeddings if e is not None]):,}개 임베딩 다운로드 완료")
-    #         # return embeddings
-    #         if completed_job.state.name == 'JOB_STATE_SUCCEEDED':
-    #             # The output is in another file.
-    #             result_file_name = completed_job.dest.file_name
-    #             print(f"Results are in file: {result_file_name}")
+       
 
-    #             print("\nDownloading and parsing result file content...")
-    #             file_content_bytes = self.gemini_client.files.download(file=result_file_name)
-    #             file_content = file_content_bytes.decode('utf-8')
-
-    #             # The result file is also a JSONL file. Parse and print each line.
-    #             for line in file_content.splitlines():
-    #                 if line:
-    #                     parsed_response = json.loads(line)
-    #                     # Pretty-print the JSON for readability
-    #                     print(json.dumps(parsed_response, indent=2))
-    #                     print("-" * 20)
-    #         else:
-    #             print(f"Job did not succeed. Final state: {completed_job.state.name}")
-
-    #     except Exception as e:
-    #         print(f"🚨 Batch 결과 다운로드 실패: {e}")
-    #         return []
-
-    def _download_and_store_embeddings(self, batch_df, embeddings, texts_to_embed):
+    def _download_and_store_embeddings(self, batch_job):
         """
         임베딩을 ChromaDB에 저장
-        
-        Args:
-            batch_df: 배치 데이터프레임
-            embeddings: 임베딩 벡터 리스트
-            texts_to_embed: 원본 텍스트 리스트
-        """
-        if self.batch_job.state.name == 'JOB_STATE_SUCCEEDED':
-                # The output is in another file.
-                result_file_name = self.batch_job.dest.file_name
-                print(f"Results are in file: {result_file_name}")
 
-                print("\nDownloading and parsing result file content...")
-                file_content_bytes = self.gemini_client.files.download(file=result_file_name)
-                file_content = file_content_bytes.decode('utf-8')
-                
+        Args:
+            batch_job: Batch 작업 객체
+        """
+        if batch_job.state.name == 'JOB_STATE_SUCCEEDED':
+            # The output is in another file.
+            result_file_name = batch_job.dest.file_name
+            print(f"Results are in file: {result_file_name}")
+
+            print("\nDownloading and parsing result file content...")
+            file_content_bytes = self.gemini_client.files.download(file=result_file_name)
+            file_content = file_content_bytes.decode('utf-8')
+
         else:
-            print(f"Job did not succeed. Final state: {self.batch_job.state.name}")
+            print(f"Job did not succeed. Final state: {batch_job.state.name}")
             return
 
         # 결과 파일 내용 파싱
@@ -335,58 +238,35 @@ class Embedder:
                         embeddings_with_keys.append((id, date, embedding))
                 
 
-        # None 값 제거 및 인덱스 정렬
-        valid_data = []
-        for i, (emb, text) in enumerate(zip(embeddings, texts_to_embed)):
-            if emb is not None:
-                valid_data.append((i, emb, text))
-        
-        if not valid_data:
-            print("⚠️ 유효한 임베딩이 없습니다.")
-            return
+        print(f"✅ {len(embeddings_with_keys):,}개 임베딩 다운로드 완료")
         
         try:
-            # 유효한 데이터만 처리
-            valid_indices = [idx for idx, _, _ in valid_data]
-            valid_embeddings = [emb for _, emb, _ in valid_data]
-            valid_texts = [text for _, _, text in valid_data]
-            valid_batch_df = batch_df.iloc[valid_indices]
-            
-            # ChromaDB에 저장할 데이터 형식으로 변환
-            ids = [f"news_{row['id']}" for index, row in valid_batch_df.iterrows()]
-            metadatas = [
-                {
-                    "article_date": row['article_date'],
-                    "title": row['title'][:500] if row['title'] else "",
-                    "original_article_id": str(row['id'])
-                }
-                for index, row in valid_batch_df.iterrows()
-            ]
-            
+            ids = [id for id, _, _ in embeddings_with_keys]
+            embs = [emb for _, _, emb in embeddings_with_keys]
+            metadatas = [{"article_date": date} for _, date, _ in embeddings_with_keys]
+
             # ChromaDB에 데이터 추가 (청크 단위로 나누어 저장)
             storage_chunk_size = 1000
             
             for i in range(0, len(ids), storage_chunk_size):
                 chunk_ids = ids[i:i+storage_chunk_size]
-                chunk_embeddings = valid_embeddings[i:i+storage_chunk_size]
-                chunk_documents = valid_texts[i:i+storage_chunk_size]
+                chunk_embeddings = embs[i:i+storage_chunk_size]
                 chunk_metadatas = metadatas[i:i+storage_chunk_size]
                 
                 self.collection.upsert(
                     ids=chunk_ids,
                     embeddings=chunk_embeddings,
-                    documents=chunk_documents,
                     metadatas=chunk_metadatas
                 )
                 
-                print(f"  💾 저장 진행: {i+len(chunk_ids):,}/{len(ids):,}")
-            
-            print(f"✅ {len(valid_embeddings):,}개 임베딩 저장 완료")
-            
+                print(f"저장 진행: {i+len(chunk_ids):,}/{len(ids):,}")
+
+            print(f"✅ {len(embeddings_with_keys):,}개 임베딩 저장 완료")
+
         except Exception as e:
-            print(f"🚨 ChromaDB 저장 실패: {e}")
+            print(f" ChromaDB 저장 실패: {e}")
     
-    def embed_and_store_batch(self, start_date, end_date, chunk_size=10000, batch_size=50000):
+    def embed_and_store_batch(self, start_date, end_date, chunk_size=10000):
         """
         Batch API를 사용한 대량 임베딩 및 저장
         
@@ -396,114 +276,30 @@ class Embedder:
             chunk_size (int): 데이터베이스 청크 크기
             batch_size (int): Batch API 배치 크기
         """
-        print(f"\n🚀 Batch API를 사용하여 임베딩을 시작합니다...")
-        print(f"📊 설정: DB 청크={chunk_size:,}, Batch 크기={batch_size:,}")
+        print(f"\nBatch API를 사용하여 임베딩을 시작합니다...")
+        print(f"설정: DB 청크={chunk_size:,}")
         
-        all_data = []
-        
-        # 먼저 모든 데이터를 수집
-        for chunk_df in self.load_data_chunked(start_date, end_date, chunk_size):
-            all_data.append(chunk_df)
-        
-        if not all_data:
-            print("⚠️ 처리할 데이터가 없습니다.")
-            return
-        
-        # 모든 청크를 합치기
-        full_df = pd.concat(all_data, ignore_index=True)
-        print(f"📊 총 {len(full_df):,}개 문서를 Batch API로 처리합니다.")
-        
-        # 대용량 배치로 나누어 처리
-        for i in range(0, len(full_df), batch_size):
-            batch_df = full_df.iloc[i:i+batch_size]
-            texts_to_embed = batch_df['full_text'].tolist()
-            
-            print(f"\n📦 배치 {i//batch_size + 1} 처리 중 ({len(texts_to_embed):,}개 문서)...")
-            
-            try:
-                # 1. Batch 입력 파일 생성
-                input_file_path = self._create_batch_input_file(
-                    texts_to_embed, 
-                    f"batch_{i//batch_size + 1}"
-                )
-                
-                # 2. 파일 업로드
-                uploaded_file = self._upload_batch_file(input_file_path)
-                
-                # 3. Batch 작업 생성
-                batch_job = self._create_batch_job(uploaded_file.uri)
-                
-                # 4. 작업 완료 대기
-                completed_job = self._wait_for_batch_completion(batch_job)
-                
-                if completed_job:
-                    # 5. 결과 다운로드 및 처리
-                    embeddings = self._download_batch_results(completed_job)
-                    
-                    if embeddings:
-                        # 6. ChromaDB에 저장
-                        self._store_embeddings(batch_df, embeddings, texts_to_embed)
-                
-                # 임시 파일 정리
-                os.remove(input_file_path)
-                
-            except Exception as e:
-                print(f"🚨 배치 {i//batch_size + 1} 처리 중 오류: {e}")
-                continue
-        
-        print("\n🎉 모든 배치 처리 완료!")
-        print(f"현재 '{self.collection_name}' 컬렉션에 저장된 총 데이터 수: {self.collection.count():,}개")
-    
-    def search_similar(self, query_text, n_results=5):
-        """
-        유사한 문서 검색
-        
-        Args:
-            query_text (str): 검색할 쿼리 텍스트
-            n_results (int): 반환할 결과 개수
-        
-        Returns:
-            dict: 검색 결과
-        """
         try:
-            # 쿼리 임베딩
-            query_result = genai.embed_content(
-                model=self.embedding_model,
-                content=[query_text],
-                task_type="RETRIEVAL_QUERY"
-            )
-            query_embedding = query_result['embedding'][0]
-            
-            # 유사 문서 검색
-            results = self.collection.query(
-                query_embeddings=[query_embedding],
-                n_results=n_results
-            )
-            
-            return results
-            
-        except Exception as e:
-            print(f"🚨 검색 중 에러 발생: {e}")
-            return None
-    
-    def get_collection_info(self):
-        """컬렉션 정보 반환"""
-        if self.collection:
-            return {
-                "name": self.collection_name,
-                "count": self.collection.count(),
-                "path": self.chroma_path
-            }
-        return None
-    
-    def delete_collection(self):
-        """컬렉션 삭제"""
-        try:
-            self.client.delete_collection(name=self.collection_name)
-            print(f"✅ '{self.collection_name}' 컬렉션이 삭제되었습니다.")
-        except Exception as e:
-            print(f"🚨 컬렉션 삭제 실패: {e}")
+            # 먼저 모든 데이터를 수집
+            temp_file = self.load_data_and_store(start_date, end_date, chunk_size) # start_date, end_date 기간의 모든 데이터를 jsonl 파일로 생성
+            created_batch_job = self.create_batch_job(temp_file) # Batch 작업 생성
+            final_status = self.Monitor_job_status(created_batch_job) # 작업 완료 대기
 
+            if final_status == 'JOB_STATE_SUCCEEDED':
+                print("배치 작업이 성공적으로 완료되었습니다.")
+            else:
+                print(f"배치 작업이 실패하였습니다. 최종 상태: {final_status}")
+                
+            self._download_and_store_embeddings(created_batch_job) # 임베딩 다운로드 및 ChromaDB에 저장
+            
+        except Exception as e:
+            print(f"임베딩 및 저장 중 오류 발생: {e}")
+        finally:
+            # 임시 파일 삭제
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+                print(f"임시 파일 '{temp_file}'이(가) 삭제되었습니다.")
+        
 def main():
     """메인 실행 함수 (Batch API 전용)"""
     try:
@@ -515,24 +311,11 @@ def main():
             start_date='2023-01-01',
             end_date='2024-12-31',
             chunk_size=10000,   # DB에서 한 번에 읽어올 문서 수
-            batch_size=50000    # Batch API로 한 번에 처리할 문서 수
         )
         
-        # 컬렉션 정보 출력
-        info = embedder.get_collection_info()
-        print(f"\n📊 컬렉션 정보: {info}")
-        
-        # 테스트 검색
-        print("\n🔍 테스트 검색 수행...")
-        results = embedder.search_similar("경제 뉴스", n_results=3)
-        
-        if results:
-            print("검색 결과:")
-            for i, doc in enumerate(results['documents'][0]):
-                print(f"{i+1}. {doc[:100]}...")
-        
     except Exception as e:
-        print(f"🚨 실행 중 오류 발생: {e}")
+        print(f"메인 실행 중 오류 발생: {e}")
 
+   
 if __name__ == "__main__":
     main()
