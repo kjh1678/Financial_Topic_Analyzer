@@ -1,11 +1,15 @@
 import requests #기사본문 크롤링 라이브러리
-#from playwright.sync_api import sync_playwright #기사목록 크롤링 라이브러리
+from playwright.sync_api import sync_playwright #기사목록 크롤링 라이브러리
 from bs4 import BeautifulSoup #HTML 파싱 라이브러리
 from datetime import datetime #날짜처리 라이브러리
 import time, random #딜레이처리 라이브러리
 import sqlite3 #DB처리 라이브러리
+import pandas as pd #날짜범위처리 라이브러리
 
 DB_PATH = 'data/news.db' # 데이터베이스 파일 경로
+
+conn=None
+cur=None
 
 # 다양한 User-Agent 리스트
 user_agents = [
@@ -38,9 +42,9 @@ def get_random_proxy():
 
 def setup_database():
     """데이터베이스와 테이블이 없으면 생성합니다."""
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute('''
+    local_conn = sqlite3.connect(DB_PATH)
+    local_cur = local_conn.cursor()
+    local_cur.execute('''
         CREATE TABLE IF NOT EXISTS articles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT UNIQUE,
@@ -48,9 +52,15 @@ def setup_database():
             article_date TEXT
         )
     ''')
-    conn.commit()
-    conn.close()
+    local_conn.commit()
     print(f"데이터베이스 '{DB_PATH}' 준비 완료.")
+    return local_conn
+
+def close_database():
+    """데이터베이스 연결을 닫습니다."""
+    global conn
+    conn.close()
+    print(f"데이터베이스 '{DB_PATH}' 연결 종료.")
     
 def save_daily_articles_to_db(articles_list):
     """
@@ -60,9 +70,8 @@ def save_daily_articles_to_db(articles_list):
         print("저장할 새로운 기사가 없습니다.")
         return 0
     
-    setup_database()  # DB와 테이블 준비
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
+    global conn
+    global cur
     
     try:
         sql = '''
@@ -76,8 +85,6 @@ def save_daily_articles_to_db(articles_list):
     except Exception as e:
         print(f"!!! DB 저장 중 오류 발생: {e}")
         return 0
-    finally:
-        conn.close()
     
 def crawl_naver_news_article(url):
         
@@ -104,6 +111,7 @@ def crawl_naver_news_article(url):
         
         date_tag=soup.select_one('span.media_end_head_info_datestamp_time._ARTICLE_DATE_TIME') 
         date=date_tag.get('data-date-time') if date_tag else 'No Date Found'
+        date_only=date.split(' ')[0] if date != 'No Date Found' else date
        
         print("="*50)
         print(f"기사 제목: {title}")
@@ -114,7 +122,7 @@ def crawl_naver_news_article(url):
         return (
             title,
             content,
-            date
+            date_only
         )
         
     except requests.exceptions.RequestException as e:
@@ -176,10 +184,17 @@ def crawl_daily_news(date):
         browser.close()
         
     save_daily_articles_to_db(all_articles_for_the_day)
-   
+    
+def main(start_date=None, end_date=None):
+    global conn
+    global cur
+    conn=setup_database()  # DB와 테이블 준비
+    cur=conn.cursor()
+    for target_date in pd.date_range(start=start_date, end=end_date): # 날짜 범위 순회
+        crawl_daily_news(target_date)
+    close_database() # DB 연결 종료
 
 if __name__ == '__main__':
-    target_date = datetime(2025, 9, 20)  # 크롤링할 날짜 설정
-    crawl_daily_news(target_date)
+    main()
  
  
