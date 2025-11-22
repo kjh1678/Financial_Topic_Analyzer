@@ -19,13 +19,6 @@ user_agents = [
     # 필요에 따라 더 추가
 ]
 
-# 프록시 리스트 예시 (실제 사용 가능한 프록시로 교체 필요)
-proxies_list = [
-    # 'http://username:password@proxy1.example.com:8080',
-    # 'http://proxy2.example.com:3128',
-    # 'https://proxy3.example.com:443',
-    # 무료 프록시는 신뢰성이 낮으니, 유료/자체 프록시 추천
-]
 
 crawled_news=0 # 크롤링한 뉴스 기사 수
 
@@ -34,11 +27,7 @@ def get_random_headers():
         'User-Agent': random.choice(user_agents)
     }
 
-def get_random_proxy():
-    if proxies_list:
-        return {'http': random.choice(proxies_list), 'https': random.choice(proxies_list)}
-    else:
-        return None
+
 
 def setup_database():
     """데이터베이스와 테이블이 없으면 생성합니다."""
@@ -47,9 +36,10 @@ def setup_database():
     local_cur.execute('''
         CREATE TABLE IF NOT EXISTS articles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT UNIQUE,
+            title TEXT,
             content TEXT,
-            article_date TEXT
+            article_date TEXT,
+            URL TEXT
         )
     ''')
     local_conn.commit()
@@ -75,8 +65,8 @@ def save_daily_articles_to_db(articles_list):
     
     try:
         sql = '''
-            INSERT OR IGNORE INTO articles (title, content, article_date) 
-            VALUES (?, ?, ?)
+            INSERT OR IGNORE INTO articles (title, content, article_date, URL) 
+            VALUES (?, ?, ?, ?)
         '''
         cur.executemany(sql, articles_list)
         conn.commit()
@@ -90,8 +80,7 @@ def crawl_naver_news_article(url):
         
     try:
         headers = get_random_headers()
-        proxies = get_random_proxy()
-        response = requests.get(url, headers=headers, proxies=proxies, timeout=10)
+        response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         response.encoding='utf-8'
         
@@ -122,7 +111,8 @@ def crawl_naver_news_article(url):
         return (
             title,
             content,
-            date_only
+            date_only,
+            url
         )
         
     except requests.exceptions.RequestException as e:
@@ -142,10 +132,13 @@ def crawl_onePage(html):
     for link in urls:
         print(f"크롤링 중인 URL: {link}")
         article_data = crawl_naver_news_article(link)
+        if article_data==None:
+            time.sleep(random.uniform(3, 5))  # 3~5초 랜덤 딜레이
+            continue
         all_articles_for_onePage.append(article_data)
         crawled_news += 1
         print(f"현재까지 크롤링한 뉴스 기사 수: {crawled_news}")
-        time.sleep(random.uniform(1, 4))  # 1~4초 랜덤 딜레이
+        time.sleep(random.uniform(0.5, 2))  # 1~4초 랜덤 딜레이
 
     return all_articles_for_onePage
 
@@ -177,7 +170,7 @@ def crawl_daily_news(date):
             print(f"{date_str} {nth_page}페이지 크롤링 완료")
             last_page=check_last_page(html)
             if not last_page:
-                time.sleep(random.uniform(1, 3))  # 1~3초 랜덤 딜레이
+                time.sleep(random.uniform(0.5, 2))  # 오류 방지 1~3초 랜덤 딜레이
                 nth_page += 1
             
             
@@ -190,11 +183,14 @@ def main(start_date=None, end_date=None):
     global cur
     conn=setup_database()  # DB와 테이블 준비
     cur=conn.cursor()
+    
     for target_date in pd.date_range(start=start_date, end=end_date): # 날짜 범위 순회
         crawl_daily_news(target_date)
+        
     close_database() # DB 연결 종료
 
 if __name__ == '__main__':
-    main()
+    main('2025-09-10', '2025-11-18')
  
  
+

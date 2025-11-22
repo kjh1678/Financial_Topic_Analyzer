@@ -8,17 +8,22 @@ import json
 import tempfile
 import os
 from pathlib import Path
+import pickle
+from datetime import datetime, timedelta
+
+
 
 # --- 1. 설정 (Configuration) ---
 # 본인의 Gemini API 키를 입력하세요.
 # (실제 서비스에서는 환경 변수나 Secret Manager를 사용하는 것이 안전합니다.)
-GOOGLE_API_KEY = 'YOUR_API_KEY_HERE'
+GOOGLE_API_KEY = 'AIzaSyCeTC1TeKmmQtk16PnEtf469Q2nkgGt2MA'
 
 # 사용할 임베딩 모델
 EMBEDDING_MODEL = 'gemini-embedding-001'
 
 # 원본 데이터베이스 파일 경로
 DB_FILE_PATH = 'data/news.db'
+EMBEDDING_RDB_PATH = 'data/embeddings.db'
 
 # 벡터 데이터베이스 설정
 CHROMA_DB_PATH = 'data/embedding_db' # 벡터 DB 파일이 저장될 디렉토리
@@ -43,6 +48,12 @@ class Embedder:
         self.gemini_client = None
         self.vectorDB_client = None
         self.collection = None
+        
+       
+        self.embedding_db_conn = None
+        self.embedding_db_cur = None
+        
+        self._setup_embedding_db()
         
         # Gemini API 설정
         self._setup_gemini_api()
@@ -70,8 +81,43 @@ class Embedder:
             print(f"ChromaDB 설정 실패: {e}")
             raise e
         
+    def _setup_embedding_db(self):
+        try:
+            self.embedding_db_conn = sqlite3.connect(EMBEDDING_RDB_PATH)
+            self.embedding_db_cur = self.embedding_db_conn.cursor()
+            self.embedding_db_cur.execute('''
+                CREATE TABLE IF NOT EXISTS embeddings (
+                    id INTEGER PRIMARY KEY,
+                    embedding TEXT
+                )
+            ''')
+            self.embedding_db_conn.commit()
+            print(f"임베딩 데이터베이스 '{EMBEDDING_RDB_PATH}'가 준비되었습니다.")
+        except Exception as e:
+            print(f"임베딩 데이터베이스 설정 실패: {e}")
+            raise e
     
-    
+    def _create_batch_input_file(self, chunk_df, f):
+       
+        for row in chunk_df.itertuples():
+
+            id = row.id
+            title_and_content = f"뉴스 기사 제목: {row.title}\n뉴스 기사 본문: {row.content}"
+            date = row.article_date
+
+            # Batch API 요청 형식
+            request = {
+                "key": f"{id}_{date}",
+                "request": {
+                    "task_type": "CLUSTERING",
+                    "output_dimensionality": 768,
+                    "content": {"parts": [{"text": title_and_content}] },
+                }
+            }
+            f.write(json.dumps(request, ensure_ascii=False) + '\n')
+
+        print(f" {len(chunk_df):,}개 문서 입력 완료")
+        
     def load_data_and_store(self, start_date, end_date, chunk_size=10000):
         """
         데이터베이스에서 청크 단위로 데이터를 로드하는 제너레이터
@@ -120,25 +166,7 @@ class Embedder:
             
         return temp_file
     
-    def _create_batch_input_file(self, chunk_df, f):
-       
-        for row in chunk_df.itertuples():
-
-            id = row.id
-            title_and_content = f"뉴스 기사 제목: {row.title}\n뉴스 기사 본문: {row.content}"
-            date = row.article_date
-
-            # Batch API 요청 형식
-            request = {
-                "key": f"{id}_{date}",
-                "request": {
-                    "output_dimensionality" : 1536,
-                    "contents":[{"parts": [{"text": title_and_content}] }],
-                }
-            }
-            f.write(json.dumps(request, ensure_ascii=False) + '\n')
-
-        print(f" {len(chunk_df):,}개 문서 입력 완료")
+    
 
     def create_batch_job(self, file_path):
         """
@@ -154,13 +182,14 @@ class Embedder:
             print(f"Uploading file: {file_path}")
             uploaded_batch_requests = self.gemini_client.files.upload(
                 file=file_path,
-                config=types.UploadFileConfig(mime_type="jsonl")
+                config=types.UploadFileConfig(display_name='my-batch-requests', mime_type="jsonl")
             )
             print(f"Create the Batch Job: {uploaded_batch_requests.name}")
             
             batch_job = self.gemini_client.batches.create_embeddings(
                 model=self.embedding_model,
-                src=types.embedding.BatchJobSource(file_name=uploaded_batch_requests.name), 
+                src=types.EmbeddingsBatchJobSource(file_name=uploaded_batch_requests.name),
+                config={'display_name': "Input embeddings batch"},
             )
             print(f"Created batch job from file: {batch_job.name}")
             
@@ -199,7 +228,7 @@ class Embedder:
         if batch_job.state.name == 'JOB_STATE_FAILED':
             print(f"Error: {batch_job.error}")
         
-        return batch_job.state.name
+        return batch_job
        
 
     def _download_and_store_embeddings(self, batch_job):
@@ -238,8 +267,19 @@ class Embedder:
                         embeddings_with_keys.append((id, date, embedding))
                 
 
-        print(f"✅ {len(embeddings_with_keys):,}개 임베딩 다운로드 완료")
+        print(f" {len(embeddings_with_keys):,}개 임베딩 다운로드 완료")
         
+        print(embeddings_with_keys) 
+            
+        try:
+            self.embedding_db_cur.executemany('''
+                INSERT INTO embeddings (id, embedding) VALUES (?, ?)
+            ''', [(id, str(embedding)) for id, _, embedding in embeddings_with_keys])
+            self.embedding_db_conn.commit()
+            print(f" {len(embeddings_with_keys):,}개 임베딩 저장 완료")
+        except Exception as e:
+            print(f" 임베딩 데이터베이스 저장 실패: {e}")
+    
         try:
             ids = [id for id, _, _ in embeddings_with_keys]
             embs = [emb for _, _, emb in embeddings_with_keys]
@@ -261,7 +301,7 @@ class Embedder:
                 
                 print(f"저장 진행: {i+len(chunk_ids):,}/{len(ids):,}")
 
-            print(f"✅ {len(embeddings_with_keys):,}개 임베딩 저장 완료")
+            print(f"{len(embeddings_with_keys):,}개 임베딩 저장 완료")
 
         except Exception as e:
             print(f" ChromaDB 저장 실패: {e}")
@@ -283,14 +323,14 @@ class Embedder:
             # 먼저 모든 데이터를 수집
             temp_file = self.load_data_and_store(start_date, end_date, chunk_size) # start_date, end_date 기간의 모든 데이터를 jsonl 파일로 생성
             created_batch_job = self.create_batch_job(temp_file) # Batch 작업 생성
-            final_status = self.Monitor_job_status(created_batch_job) # 작업 완료 대기
+            final_batch_job = self.Monitor_job_status(created_batch_job) # 작업 완료 대기
 
-            if final_status == 'JOB_STATE_SUCCEEDED':
+            if final_batch_job.state.name == 'JOB_STATE_SUCCEEDED':
                 print("배치 작업이 성공적으로 완료되었습니다.")
             else:
-                print(f"배치 작업이 실패하였습니다. 최종 상태: {final_status}")
+                print(f"배치 작업이 실패하였습니다. 최종 상태: {final_batch_job.state.name}")
                 
-            self._download_and_store_embeddings(created_batch_job) # 임베딩 다운로드 및 ChromaDB에 저장
+            self._download_and_store_embeddings(final_batch_job) # 임베딩 다운로드 및 ChromaDB에 저장
             
         except Exception as e:
             print(f"임베딩 및 저장 중 오류 발생: {e}")
@@ -300,7 +340,7 @@ class Embedder:
                 os.remove(temp_file)
                 print(f"임시 파일 '{temp_file}'이(가) 삭제되었습니다.")
         
-def main():
+def batch_embedding_main(start, end):
     """메인 실행 함수 (Batch API 전용)"""
     try:
         # Embedder 인스턴스 생성
@@ -308,8 +348,8 @@ def main():
         
         # Batch API로 임베딩 및 저장
         embedder.embed_and_store_batch(
-            start_date='2023-01-01',
-            end_date='2024-12-31',
+            start_date=start,
+            end_date=end,
             chunk_size=10000,   # DB에서 한 번에 읽어올 문서 수
         )
         
@@ -318,4 +358,5 @@ def main():
 
    
 if __name__ == "__main__":
-    main()
+   for day in pd.date_range(start='2025-08-27', end='2025-11-18', freq='1D'):
+     batch_embedding_main(start=day.strftime('%Y-%m-%d'), end=(day + timedelta(days=1)).strftime('%Y-%m-%d'))
