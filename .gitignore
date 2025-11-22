@@ -29,16 +29,13 @@ ENV/
 env.bak/
 venv.bak/
 .venv/
+venv-py311/
 
 # PyInstaller
 *.manifest
 *.spec
 
-# 데이터베이스
-*.db
-*.sqlite
-*.sqlite3
-*.db-journal
+
 
 # 로그 파일
 *.log
