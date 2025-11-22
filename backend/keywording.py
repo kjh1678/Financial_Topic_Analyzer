@@ -15,8 +15,8 @@ client = genai.Client(api_key=API_KEY)
 # 파일 경로 설정
 DB_CLUSTER_PATH = "data/cluster.db"
 DB_NEWS_PATH = "data/news.db"
-BATCH_INPUT_FILE = "cluster_keywording_input.jsonl"
-BATCH_OUTPUT_FILE = "cluster_keywording_output.jsonl"
+BATCH_INPUT_FILE = "tempfile/cluster_keywording_input.jsonl"
+BATCH_OUTPUT_FILE = "tempfile/cluster_keywording_output.jsonl"
 
 # 프롬프트 설정
 refined_system_prompt ="""Extract the most important keywords from the given news article titles. 
