@@ -9,7 +9,7 @@ from google.genai import types
 # 1. 설정 및 데이터베이스 연결
 # ==========================================
 # API 키 입력
-API_KEY = "AIzaSyCeTC1TeKmmQtk16PnEtf469Q2nkgGt2MA"  # 실제 키로 교체해주세요
+API_KEY = "APIKEY"  # 실제 키로 교체해주세요
 client = genai.Client(api_key=API_KEY)
 
 # 파일 경로 설정
