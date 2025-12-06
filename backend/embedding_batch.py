@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 # --- 1. 설정 (Configuration) ---
 # 본인의 Gemini API 키를 입력하세요.
 # (실제 서비스에서는 환경 변수나 Secret Manager를 사용하는 것이 안전합니다.)
-GOOGLE_API_KEY = 'AIzaSyCeTC1TeKmmQtk16PnEtf469Q2nkgGt2MA'
+GOOGLE_API_KEY = 'APIKEY'
 
 # 사용할 임베딩 모델
 EMBEDDING_MODEL = 'gemini-embedding-001'
